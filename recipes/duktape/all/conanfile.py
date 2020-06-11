@@ -1,7 +1,6 @@
 import os
+
 from conans import CMake, ConanFile, tools
-from conans.errors import ConanInvalidConfiguration
-from conans.tools import Version
 
 
 class DuktapeConan(ConanFile):
@@ -14,10 +13,7 @@ class DuktapeConan(ConanFile):
     exports_sources = ["CMakeLists.txt"]
     generators = "cmake"
     settings = "os", "arch", "compiler", "build_type"
-    options = {
-        "shared": [True, False],
-        "fPIC": [True, False]
-    }
+    options = {"shared": [True, False], "fPIC": [True, False]}
     default_options = {
         "shared": False,
         "fPIC": True,
@@ -33,6 +29,10 @@ class DuktapeConan(ConanFile):
         if self.settings.os == "Windows":
             del self.options.fPIC
 
+    def configure(self):
+        del self.settings.compiler.libcxx
+        del self.settings.compiler.cppstd
+
     def source(self):
         tools.get(**self.conan_data["sources"][self.version])
         extracted_dir = self.name + "-" + self.version
@@ -46,6 +46,16 @@ class DuktapeConan(ConanFile):
         return self._cmake
 
     def build(self):
+        # Duktape has configure script with a number of options.
+        # However it requires python 2 and PyYAML package
+        # which is quite an unusual combination to have.
+        # The most crucial option is --dll which just flips this define.
+        if self.settings.os == "Windows" and self.options.shared:
+            tools.replace_in_file(
+                os.path.join(self._source_subfolder, "src", "duk_config.h"),
+                "#undef DUK_F_DLL_BUILD",
+                "#define DUK_F_DLL_BUILD",
+            )
         cmake = self._configure_cmake()
         cmake.build()
 
@@ -55,7 +65,6 @@ class DuktapeConan(ConanFile):
         cmake.install()
 
     def package_info(self):
-        self.cpp_info.libs = tools.collect_libs(self)
-        if not self.options.shared:
-            if self.settings.os == "Linux":
-                self.cpp_info.system_libs = ["pthread"]
+        self.cpp_info.libs = ["duktape"]
+        if self.settings.os != "Windows" and not self.options.shared:
+            self.cpp_info.system_libs = ["m"]
